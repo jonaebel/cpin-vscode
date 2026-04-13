@@ -9,15 +9,36 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "onStartupFinished",
+    "workspaceContains:.cpin"
+  ],
   "main": "./out/extension.js",
   "contributes": {
     "commands": [
       {
-        "command": "cpin.helloWorld",
-        "title": "Hello World"
+        "command": "cpin.addNote",
+        "title": "cpin: Add Note"
+      },
+      {
+        "command": "cpin.removeNote",
+        "title": "cpin: Remove Note"
       }
-    ]
+    ],
+    "menus": {
+      "editor/context": [
+        {
+          "command": "cpin.addNote",
+          "group": "cpin@1",
+          "when": "editorFocus"
+        },
+        {
+          "command": "cpin.removeNote",
+          "group": "cpin@2",
+          "when": "editorFocus"
+        }
+      ]
+    }
   },
   "scripts": {
     "vscode:prepublish": "npm run compile",
