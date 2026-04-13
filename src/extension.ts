@@ -1,26 +1,99 @@
-// The module 'vscode' contains the VS Code extensibility API
-// Import the module and reference it with the alias vscode in your code below
+import * as path from 'path';
 import * as vscode from 'vscode';
+import * as cpin from './cpin';
 
-// This method is called when your extension is activated
-// Your extension is activated the very first time the command is executed
-export function activate(context: vscode.ExtensionContext) {
+// ── Decoration manager ──────────────────────────────────────────────────────
 
-	// Use the console to output diagnostic information (console.log) and errors (console.error)
-	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "cpin" is now active!');
+const gutterDecorationType = vscode.window.createTextEditorDecorationType({
+    gutterIconPath: path.join(__dirname, '..', 'media', 'note-gutter.svg'),
+    gutterIconSize: 'contain',
+    overviewRulerColor: new vscode.ThemeColor('editorOverviewRuler.warningForeground'),
+    overviewRulerLane: vscode.OverviewRulerLane.Left,
+});
 
-	// The command has been defined in the package.json file
-	// Now provide the implementation of the command with registerCommand
-	// The commandId parameter must match the command field in package.json
-	const disposable = vscode.commands.registerCommand('cpin.helloWorld', () => {
-		// The code you place here will be executed every time your command is executed
-		// Display a message box to the user
-		vscode.window.showInformationMessage('Hello World from cpin!');
-	});
-
-	context.subscriptions.push(disposable);
+async function refreshDecorations(editor: vscode.TextEditor): Promise<void> {
+    const notes = await cpin.listBackground(editor.document.fileName);
+    const ranges = notes.map(n =>
+        new vscode.Range(n.line - 1, 0, n.line - 1, 0)
+    );
+    editor.setDecorations(gutterDecorationType, ranges);
 }
 
-// This method is called when your extension is deactivated
+// ── Extension lifecycle ─────────────────────────────────────────────────────
+
+export function activate(context: vscode.ExtensionContext) {
+
+    // Load decorations for the currently active editor immediately.
+    if (vscode.window.activeTextEditor) {
+        refreshDecorations(vscode.window.activeTextEditor);
+    }
+
+    context.subscriptions.push(
+        vscode.window.onDidChangeActiveTextEditor(editor => {
+            if (editor) { refreshDecorations(editor); }
+        }),
+        vscode.workspace.onDidSaveTextDocument(doc => {
+            const editor = vscode.window.activeTextEditor;
+            if (editor && editor.document === doc) {
+                refreshDecorations(editor);
+            }
+        }),
+    );
+
+    // ── Commands ────────────────────────────────────────────────────────────
+
+    const addNote = vscode.commands.registerCommand('cpin.addNote', async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            vscode.window.showWarningMessage('cpin: no active editor.');
+            return;
+        }
+
+        const file = editor.document.fileName;
+        const line = editor.selection.active.line + 1; // VS Code lines are 0-based
+
+        const content = await vscode.window.showInputBox({
+            prompt: `Add note at ${file}:${line}`,
+            placeHolder: 'Note content…',
+        });
+        if (!content) { return; } // cancelled or empty
+
+        try {
+            await cpin.add(file, line, content);
+            await refreshDecorations(editor);
+        } catch {
+            return; // error already reported by cpin.ts (ENOENT) or binary stderr
+        }
+    });
+
+    const removeNote = vscode.commands.registerCommand('cpin.removeNote', async () => {
+        const editor = vscode.window.activeTextEditor;
+        if (!editor) {
+            vscode.window.showWarningMessage('cpin: no active editor.');
+            return;
+        }
+
+        const file = editor.document.fileName;
+        const line = editor.selection.active.line + 1;
+
+        const notes = await cpin.list(file).catch(() => null);
+        if (!notes) { return; } // error already reported
+
+        const hasNote = notes.some(n => n.line === line);
+        if (!hasNote) {
+            vscode.window.showWarningMessage(`cpin: no note at line ${line}.`);
+            return;
+        }
+
+        try {
+            await cpin.remove(file, line);
+            await refreshDecorations(editor);
+        } catch {
+            return;
+        }
+    });
+
+    context.subscriptions.push(addNote, removeNote);
+}
+
 export function deactivate() {}
